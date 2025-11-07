@@ -73,7 +73,7 @@ if (!isAdmin()) {
         <i class="fa-solid fa-trash-alt"></i><span>Bins</span>
       </a>
       <a href="janitors.php" class="sidebar-item">
-        <i class="fa-solid fa-users"></i><span>Janitors</span>
+        <i class="fa-solid fa-users"></i><span>Maintenance Staff</span>
       </a>
       <a href="reports.php" class="sidebar-item">
         <i class="fa-solid fa-chart-line"></i><span>Reports</span>
