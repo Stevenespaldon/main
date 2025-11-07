@@ -2,7 +2,7 @@
 require_once 'includes/config.php';
 
 if (!isLoggedIn() || !isAdmin()) {
-    header('Location: admin-login.php');
+    header('Location: login.php');
     exit;
 }
 ?>
@@ -253,32 +253,33 @@ if (!isLoggedIn() || !isAdmin()) {
 
     function displayJanitors(janitors) {
       const tbody = document.getElementById('janitorsTableBody');
-      
-      if (janitors.length === 0) {
+
+      if (!Array.isArray(janitors) || janitors.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No janitors found</td></tr>';
         return;
       }
 
+      // Use janitor_id (DB) everywhere
       tbody.innerHTML = janitors.map(janitor => `
         <tr>
           <td>
-            <strong>${janitor.first_name} ${janitor.last_name}</strong>
+            <strong>${escapeHtml(janitor.first_name)} ${escapeHtml(janitor.last_name)}</strong>
           </td>
-          <td>${janitor.email}</td>
-          <td class="d-none d-md-table-cell">${janitor.phone}</td>
+          <td>${escapeHtml(janitor.email)}</td>
+          <td class="d-none d-md-table-cell">${escapeHtml(janitor.phone)}</td>
           <td class="d-none d-lg-table-cell">
             <span class="badge bg-info">${janitor.assigned_bins || 0}</span>
           </td>
           <td>
             <span class="badge ${janitor.status === 'active' ? 'bg-success' : 'bg-secondary'}">
-              ${janitor.status.charAt(0).toUpperCase() + janitor.status.slice(1)}
+              ${janitor.status ? (janitor.status.charAt(0).toUpperCase() + janitor.status.slice(1)) : ''}
             </span>
           </td>
           <td class="text-end">
-            <button class="btn btn-sm btn-outline-primary" onclick="editJanitor(${janitor.user_id}, '${janitor.first_name}', '${janitor.last_name}', '${janitor.email}', '${janitor.phone}', '${janitor.status}')">
+            <button class="btn btn-sm btn-outline-primary" onclick="editJanitor(${janitor.janitor_id}, '${jsEscape(janitor.first_name)}', '${jsEscape(janitor.last_name)}', '${jsEscape(janitor.email)}', '${jsEscape(janitor.phone)}', '${jsEscape(janitor.status)}')">
               <i class="fas fa-edit"></i>
             </button>
-            <button class="btn btn-sm btn-outline-danger" onclick="deleteJanitor(${janitor.user_id})">
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteJanitor(${janitor.janitor_id})">
               <i class="fas fa-trash"></i>
             </button>
           </td>
@@ -315,21 +316,21 @@ if (!isLoggedIn() || !isAdmin()) {
         .catch(error => console.error('Error:', error));
     }
 
-    function editJanitor(userId, firstName, lastName, email, phone, status) {
-      document.getElementById('editJanitorId').value = userId;
+    function editJanitor(janitorId, firstName, lastName, email, phone, status) {
+      document.getElementById('editJanitorId').value = janitorId;
       document.getElementById('editJanitorFirstName').value = firstName;
       document.getElementById('editJanitorLastName').value = lastName;
       document.getElementById('editJanitorEmail').value = email;
       document.getElementById('editJanitorPhone').value = phone;
       document.getElementById('editJanitorStatus').value = status;
-      
+
       const modal = new bootstrap.Modal(document.getElementById('editJanitorModal'));
       modal.show();
     }
 
     function saveJanitorEdit() {
       const formData = {
-        user_id: document.getElementById('editJanitorId').value,
+        janitor_id: document.getElementById('editJanitorId').value,
         first_name: document.getElementById('editJanitorFirstName').value.trim(),
         last_name: document.getElementById('editJanitorLastName').value.trim(),
         email: document.getElementById('editJanitorEmail').value,
@@ -356,12 +357,12 @@ if (!isLoggedIn() || !isAdmin()) {
         .catch(error => console.error('Error:', error));
     }
 
-    function deleteJanitor(userId) {
+    function deleteJanitor(janitorId) {
       if (confirm('Are you sure you want to delete this janitor?')) {
         fetch('api/delete-janitor.php', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId })
+          body: JSON.stringify({ janitor_id: janitorId })
         })
           .then(response => response.json())
           .then(data => {
@@ -376,9 +377,23 @@ if (!isLoggedIn() || !isAdmin()) {
       }
     }
 
+    // small helper to escape HTML
+    function escapeHtml(s) {
+      if (!s) return '';
+      return s.replace(/[&<>"']/g, function(m) {
+        return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' })[m];
+      });
+    }
+
+    // helper to escape strings for single-quoted JS inline args
+    function jsEscape(s) {
+      if (s === undefined || s === null) return '';
+      return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
       loadAllJanitors();
-      
+
       // Search functionality
       document.getElementById('searchJanitorsInput').addEventListener('keyup', function() {
         const searchTerm = this.value.toLowerCase();
@@ -388,7 +403,7 @@ if (!isLoggedIn() || !isAdmin()) {
         });
       });
 
-      // Filter functionality
+      // Filter dropdown wiring
       document.querySelectorAll('#filterJanitorsDropdown + .dropdown-menu .dropdown-item').forEach(item => {
         item.addEventListener('click', function(e) {
           e.preventDefault();

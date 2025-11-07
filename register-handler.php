@@ -167,7 +167,7 @@ try {
 
     $response['success'] = true;
     $response['message'] = 'Registration successful! You can now log in.';
-    $response['redirect'] = 'login.php';
+    $response['redirect'] = 'user-login.php';
 
     error_log("[v0] Registration completed successfully for email: $email");
 

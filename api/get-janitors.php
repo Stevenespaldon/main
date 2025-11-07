@@ -7,20 +7,33 @@ if (!isLoggedIn() || !isAdmin()) {
 
 try {
     $filter = $_GET['filter'] ?? 'all';
-    
-    $sql = "SELECT u.user_id, u.first_name, u.last_name, u.email, u.phone, u.status, u.employee_id,
-                   COUNT(b.bin_id) as assigned_bins
-            FROM users u
-            LEFT JOIN bins b ON u.user_id = b.assigned_to
-            WHERE u.role = 'janitor'";
+    $filter = strtolower(trim($filter));
+
+    $sql = "
+        SELECT 
+            j.janitor_id,
+            j.first_name,
+            j.last_name,
+            j.email,
+            j.phone,
+            j.status,
+            j.employee_id,
+            COUNT(b.bin_id) AS assigned_bins
+        FROM janitors j
+        LEFT JOIN bins b ON j.janitor_id = b.assigned_to
+        WHERE 1=1
+    ";
 
     $params = [];
     if ($filter !== 'all') {
-        $sql .= " AND u.status = ?";
-        $params[] = $filter;
+        $allowed = ['active', 'inactive'];
+        if (in_array($filter, $allowed, true)) {
+            $sql .= " AND j.status = ?";
+            $params[] = $filter;
+        }
     }
 
-    $sql .= " GROUP BY u.user_id ORDER BY u.first_name ASC";
+    $sql .= " GROUP BY j.janitor_id ORDER BY j.first_name ASC";
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);

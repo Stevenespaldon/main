@@ -7,31 +7,17 @@ if (!isLoggedIn() || !isAdmin()) {
 
 try {
     $data = json_decode(file_get_contents('php://input'), true);
-    
-    if (!isset($data['user_id'])) {
-        sendJSON(['success' => false, 'message' => 'user_id is required']);
-        exit;
-    }
-    
-    $user_id = intval($data['user_id']);
+    $janitor_id = isset($data['janitor_id']) ? intval($data['janitor_id']) : 0;
 
-    // First check if tasks table has assigned_to column before deleting
-    // For now, we'll skip this if the column doesn't exist in your table
-
-    // Update bins to remove assignment
-    $stmt = $conn->prepare("UPDATE bins SET assigned_to = NULL WHERE assigned_to = ?");
-    $stmt->bind_param("i", $user_id);
-    $stmt->execute();
-    
-    // Delete the janitor
-    $stmt = $conn->prepare("DELETE FROM users WHERE user_id = ? AND role = 'janitor'");
-    $stmt->bind_param("i", $user_id);
-    
-    if ($stmt->execute()) {
-        sendJSON(['success' => true, 'message' => 'Janitor deleted successfully']);
-    } else {
-        sendJSON(['success' => false, 'message' => $conn->error]);
+    if ($janitor_id <= 0) {
+        sendJSON(['success' => false, 'message' => 'Invalid janitor_id']);
     }
+
+    $sql = "DELETE FROM janitors WHERE janitor_id = :janitor_id LIMIT 1";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([':janitor_id' => $janitor_id]);
+
+    sendJSON(['success' => true, 'message' => 'Janitor deleted successfully']);
 } catch (Exception $e) {
     sendJSON(['success' => false, 'message' => $e->getMessage()]);
 }

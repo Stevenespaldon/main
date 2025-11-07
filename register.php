@@ -3,7 +3,7 @@ require_once 'includes/config.php';
 
 // Redirect to login if not logged in
 if (!isLoggedIn()) {
-    header('Location: login.php');
+    header('Location: user-login.php');
     exit;
 }
 
