@@ -5,6 +5,91 @@ if (!isLoggedIn() || !isAdmin()) {
     header('Location: admin-login.php');
     exit;
 }
+
+// ---------------------------
+// Real-time stats from DB (server-side initial values)
+// ---------------------------
+$collectionsThisMonth = 0;
+$pendingCount = 0;
+$completedThisMonth = 0;
+$reportsCount = 0;
+
+try {
+    // Collections this month
+    $stmt = $pdo->query("
+        SELECT COUNT(*) AS cnt
+        FROM collections
+        WHERE YEAR(created_at) = YEAR(CURRENT_DATE())
+          AND MONTH(created_at) = MONTH(CURRENT_DATE())
+    ");
+    $row = $stmt->fetch();
+    if ($row && isset($row['cnt'])) {
+        $collectionsThisMonth = (int)$row['cnt'];
+    }
+} catch (Exception $e) {
+    error_log("[reports.php] collections this month query failed: " . $e->getMessage());
+    $collectionsThisMonth = 0;
+}
+
+try {
+    // Pending (total pending that need action)
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM collections WHERE status = :status");
+    $stmt->execute([':status' => 'pending']);
+    $pendingCount = (int)$stmt->fetchColumn();
+} catch (Exception $e) {
+    error_log("[reports.php] pending count query failed: " . $e->getMessage());
+    $pendingCount = 0;
+}
+
+try {
+    // Completed this month
+    $stmt = $pdo->query("
+        SELECT COUNT(*) AS cnt
+        FROM collections
+        WHERE status = 'completed'
+          AND YEAR(created_at) = YEAR(CURRENT_DATE())
+          AND MONTH(created_at) = MONTH(CURRENT_DATE())
+    ");
+    $row = $stmt->fetch();
+    if ($row && isset($row['cnt'])) {
+        $completedThisMonth = (int)$row['cnt'];
+    }
+} catch (Exception $e) {
+    error_log("[reports.php] completed this month query failed: " . $e->getMessage());
+    $completedThisMonth = 0;
+}
+
+try {
+    // Reports total (simple count)
+    $stmt = $pdo->query("SELECT COUNT(*) AS cnt FROM reports");
+    $row = $stmt->fetch();
+    if ($row && isset($row['cnt'])) {
+        $reportsCount = (int)$row['cnt'];
+    }
+} catch (Exception $e) {
+    error_log("[reports.php] reports count query failed: " . $e->getMessage());
+    $reportsCount = 0;
+}
+
+// Fetch recent reports (server-side rendering fallback)
+$reports = [];
+try {
+    $stmt = $pdo->query("
+        SELECT
+            report_id,
+            name,
+            type,
+            created_at,
+            status
+        FROM reports
+        ORDER BY created_at DESC
+        LIMIT 50
+    ");
+    $reports = $stmt->fetchAll();
+} catch (Exception $e) {
+    error_log("[reports.php] Failed to load reports: " . $e->getMessage());
+    $reports = [];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -90,7 +175,7 @@ if (!isLoggedIn() || !isAdmin()) {
           <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#createReportModal">
             <i class="fas fa-plus me-1"></i>Create Report
           </button>
-          <button class="btn btn-primary" onclick="exportReport()">
+          <button id="btnExport" class="btn btn-primary" onclick="exportReport()">
             <i class="fas fa-download me-1"></i>Export
           </button>
         </div>
@@ -105,7 +190,7 @@ if (!isLoggedIn() || !isAdmin()) {
             </div>
             <div class="stat-content">
               <h6>Collections</h6>
-              <h2>156</h2>
+              <h2 id="stat-collections"><?php echo htmlspecialchars($collectionsThisMonth, ENT_QUOTES, 'UTF-8'); ?></h2>
               <small>This month</small>
             </div>
           </div>
@@ -117,7 +202,7 @@ if (!isLoggedIn() || !isAdmin()) {
             </div>
             <div class="stat-content">
               <h6>Pending</h6>
-              <h2>23</h2>
+              <h2 id="stat-pending"><?php echo htmlspecialchars($pendingCount, ENT_QUOTES, 'UTF-8'); ?></h2>
               <small>Need action</small>
             </div>
           </div>
@@ -129,7 +214,7 @@ if (!isLoggedIn() || !isAdmin()) {
             </div>
             <div class="stat-content">
               <h6>Completed</h6>
-              <h2>133</h2>
+              <h2 id="stat-completed"><?php echo htmlspecialchars($completedThisMonth, ENT_QUOTES, 'UTF-8'); ?></h2>
               <small>This month</small>
             </div>
           </div>
@@ -141,7 +226,7 @@ if (!isLoggedIn() || !isAdmin()) {
             </div>
             <div class="stat-content">
               <h6>Reports</h6>
-              <h2>24</h2>
+              <h2 id="stat-reports"><?php echo htmlspecialchars($reportsCount, ENT_QUOTES, 'UTF-8'); ?></h2>
               <small>Generated</small>
             </div>
           </div>
@@ -166,9 +251,40 @@ if (!isLoggedIn() || !isAdmin()) {
                 </tr>
               </thead>
               <tbody id="reportsTableBody">
-                <tr>
-                  <td colspan="5" class="text-center py-4 text-muted">No reports found</td>
-                </tr>
+                <?php if (empty($reports)): ?>
+                  <tr>
+                    <td colspan="5" class="text-center py-4 text-muted">No reports found</td>
+                  </tr>
+                <?php else: ?>
+                  <?php foreach ($reports as $r): ?>
+                    <?php
+                      $id = (int)($r['report_id'] ?? 0);
+                      $name = htmlspecialchars($r['name'] ?? 'Unnamed Report', ENT_QUOTES, 'UTF-8');
+                      $type = htmlspecialchars($r['type'] ?? '', ENT_QUOTES, 'UTF-8');
+                      $created = $r['created_at'] ?? null;
+                      $dateFormatted = $created ? date('M d, Y H:i', strtotime($created)) : '-';
+                      $status = htmlspecialchars($r['status'] ?? 'unknown', ENT_QUOTES, 'UTF-8');
+
+                      // simple label classes
+                      $statusClass = 'badge bg-secondary';
+                      if (strtolower($status) === 'completed') $statusClass = 'badge bg-success';
+                      if (strtolower($status) === 'pending') $statusClass = 'badge bg-warning text-dark';
+                      if (strtolower($status) === 'failed') $statusClass = 'badge bg-danger';
+                    ?>
+                    <tr>
+                      <td><?php echo $name; ?></td>
+                      <td class="d-none d-md-table-cell"><?php echo ucfirst($type); ?></td>
+                      <td class="d-none d-lg-table-cell"><?php echo $dateFormatted; ?></td>
+                      <td><span class="<?php echo $statusClass; ?>"><?php echo ucfirst($status); ?></span></td>
+                      <td class="text-end">
+                        <div class="btn-group" role="group" aria-label="Actions">
+                          <a href="view-report.php?id=<?php echo $id; ?>" class="btn btn-sm btn-outline-primary">View</a>
+                          <a href="download-report.php?id=<?php echo $id; ?>" class="btn btn-sm btn-outline-secondary">Download</a>
+                        </div>
+                      </td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
               </tbody>
             </table>
           </div>
@@ -202,11 +318,11 @@ if (!isLoggedIn() || !isAdmin()) {
             </div>
             <div class="mb-3">
               <label class="form-label">From Date</label>
-              <input type="date" class="form-control" id="reportFromDate" required>
+              <input type="date" class="form-control" id="reportFromDate">
             </div>
             <div class="mb-3">
               <label class="form-label">To Date</label>
-              <input type="date" class="form-control" id="reportToDate" required>
+              <input type="date" class="form-control" id="reportToDate">
             </div>
           </form>
         </div>
@@ -222,9 +338,21 @@ if (!isLoggedIn() || !isAdmin()) {
   <script src="js/bootstrap.bundle.min.js"></script>
   <script src="js/database.js"></script>
   <script src="js/dashboard.js"></script>
+
+  <!-- Reports logic (AJAX) - expects js/reports.js and api endpoints in api/ -->
+  <script src="js/reports.js"></script>
+
   <script>
+    // ensure initial load if js/reports.js is not yet loaded or defines loadReports later
     document.addEventListener('DOMContentLoaded', function() {
-      loadReports();
+      if (typeof loadReports === 'function') {
+        loadReports();
+      } else {
+        // fallback: try again shortly (gives js/reports.js time to load)
+        setTimeout(function() {
+          if (typeof loadReports === 'function') loadReports();
+        }, 200);
+      }
     });
 
     function generateReport() {
@@ -238,8 +366,64 @@ if (!isLoggedIn() || !isAdmin()) {
       bootstrap.Modal.getInstance(document.getElementById('createReportModal')).hide();
     }
 
+    // Export implementation: POSTs a small form to export_reports.php which returns a download.
+    // This includes optional filters (report type, from/to dates) taken from the modal inputs.
     function exportReport() {
-      console.log('Export report');
+      // Gather filter values from modal inputs (if user set them)
+      const type = document.getElementById('reportType') ? document.getElementById('reportType').value : '';
+      const fromDate = document.getElementById('reportFromDate') ? document.getElementById('reportFromDate').value : '';
+      const toDate = document.getElementById('reportToDate') ? document.getElementById('reportToDate').value : '';
+
+      // Build and submit a POST form to trigger the download
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = 'export_reports.php';
+      form.style.display = 'none';
+
+      if (type) {
+        const inputType = document.createElement('input');
+        inputType.type = 'hidden';
+        inputType.name = 'type';
+        inputType.value = type;
+        form.appendChild(inputType);
+      }
+
+      if (fromDate) {
+        const inputFrom = document.createElement('input');
+        inputFrom.type = 'hidden';
+        inputFrom.name = 'from_date';
+        inputFrom.value = fromDate;
+        form.appendChild(inputFrom);
+      }
+
+      if (toDate) {
+        const inputTo = document.createElement('input');
+        inputTo.type = 'hidden';
+        inputTo.name = 'to_date';
+        inputTo.value = toDate;
+        form.appendChild(inputTo);
+      }
+
+      document.body.appendChild(form);
+
+      // Optionally show a small UX change: disable export button briefly
+      const btn = document.getElementById('btnExport');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Preparing...';
+      }
+
+      // Submit the form to trigger the browser download
+      form.submit();
+
+      // Clean up after a short delay (download is handled by browser)
+      setTimeout(function() {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-download me-1"></i>Export';
+        }
+        form.remove();
+      }, 1500);
     }
   </script>
 </body>

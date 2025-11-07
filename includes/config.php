@@ -224,6 +224,4 @@ function getActiveJanitors(): array {
     ");
 
     return $stmt->fetchAll();
-}
-
-?>
+}   
